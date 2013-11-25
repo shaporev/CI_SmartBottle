@@ -178,7 +178,8 @@ Started on November, 19 2013
   
 
 
-  const int c_DS_timer_interval=900;  //900 seconds - the interval between timepoints additions to the first CB
+  /*DEBUG*/
+  const int c_DS_timer_interval=9;  //900 seconds - the interval between timepoints additions to the first CB
   signed long v_DS_timer=c_DS_timer_interval;  //a timer after which data will be written to CB. In seconds!
   int v_DS_counter=0;  //number of data point averaged
   signed long v_DS_accumulator=0;  //accumulator of data point received from DA
@@ -187,6 +188,8 @@ Started on November, 19 2013
   //Incoming signals
   void f_DS_datum_received(int data_received);    //function from DA with new temperature read
   void f_DS_timer_updated(long new_timer);        //updater upon timer update
+
+  //TODO: read data from the DS
   
   
   //Outgoing signals
@@ -195,7 +198,247 @@ Started on November, 19 2013
   //Internal functions
   
   
+//! External communications (BT) block
+  //Variables
+  //idea of the token - token is changed when new data are arrived. The idea is for the phone to know whether any data changed, or not without 
+  //all data download - only by knowing if last token it received (and confirmed) is the same as the current token of the device
+  #define c_BT_TOKEN_NEVER_CONNECTED 0          //an initial value that can only be set to token (last_confirmed_token) after the start of the device
+  #define c_BT_TOKEN_CONNECTION_INIT 1          //an initial value that can only be set to token (v_BT_current_token) after the start of the device
+  #define c_BT_TOKEN_START 2                    //limits of token values - tokens are supposed to be between TOKEN_START and TOKEN_MAX
+  #define c_BT_TOKEN_MAX 250
+  unsigned int v_BT_current_token = c_BT_TOKEN_CONNECTION_INIT;             //the token value that was generated after last data receipt
+  unsigned int v_BT_last_confirmed_token = c_BT_TOKEN_NEVER_CONNECTED;      //last token value that was confirmed by phone
+
+    //alarm tokens - are tokens informing the phone whether new alarm messages were received, thus helping to sync data erase process
+  unsigned int v_BT_current_token_alarm = c_BT_TOKEN_CONNECTION_INIT;             //the alarm token value that was generated after last data receipt
+  unsigned int v_BT_last_confirmed_token_alarm = c_BT_TOKEN_NEVER_CONNECTED;      //last alarm token value that was confirmed by phone
+  const int c_BT_incoming_buffer_size=20;    //size of an incoming messages buffer
+  unsigned char v_BT_incoming_buffer[c_BT_incoming_buffer_size];  //incoming messages buffer
+  int v_BT_incoming_buffer_start=0;    //position of the start symbol
+  int v_BT_incoming_buffer_last=0;  //position of the last symbol in this circular buffer
+  int v_BT_incoming_buffer_length=0;  //number of symbols in the circular buffer
+  
+
+  //Incoming signals
+  void f_BT_new_averaged_data(int data, int buffer_level);    //new averaged obtained in DS in the circular buffer of level buffer_level
+  void f_BT_serial_available();  //IMPORTANT! Essential for systems with limited UART buffer (like PIC) to connect an interrupt to it
+  void f_BT_loop_updated();  //update of BT (including check for new messages available) upon loop 
+  void f_BT_inform_short_term_temperature_alarm(int temperature);  //short alarm received
+  void f_BT_inform_long_term_temperature_alarm(int temperature);  //long alarm received
+  //Outgoing signals
+  
+  //Internal functions
+  unsigned int f_BT_update_token();  //increase token upon receipt of a new data
+  unsigned int f_BT_update_token_alarm();  //increase alarm token upon receipt of a new data
+  unsigned char f_BT_read_from_buffer();  //reading char from incoming message buffer
+  boolean f_BT_incoming_buffer_not_empty();  //returns whether incoming buffer is empty or not
+  void f_BT_return_unknown_command();  //sends "Unknown command" to the phone.
+  
 //IMPLEMENTATION
+
+//! External communications (BT) block
+  void f_BT_return_unknown_command()  //sends "Unknown command" to the phone.
+  {
+    Serial.println("Unknown command!");
+  }
+  
+  boolean f_BT_incoming_buffer_not_empty()  //returns whether incoming buffer is empty or not
+  {
+    return (v_BT_incoming_buffer_length!=0);  //by simply comparison of the length with zero.
+  }
+  
+  unsigned char f_BT_read_from_buffer()  //reading char from incoming message buffer
+  {
+    if (v_BT_incoming_buffer_length>0)
+    {
+      unsigned char buf=v_BT_incoming_buffer[v_BT_incoming_buffer_start];  //this is the first char in stack
+      v_BT_incoming_buffer_start++;  //moving index of the next char to read to next char in stack
+      if (v_BT_incoming_buffer_start>=v_BT_incoming_buffer_length) v_BT_incoming_buffer_start-=v_BT_incoming_buffer_length;  //implementing circular buffer
+      v_BT_incoming_buffer_length--;  //reducing the length
+      //as a result - first char is removed from the stack (circular buffer)
+      return buf; 
+    }else
+    {
+      return 0;  //returning error. Althouth this error must be catched before - buffer emptiness must be checked before calling this function
+    }
+  }
+  
+  void f_BT_serial_available()
+  {  //Adds chars to a buffer, and DOES NOT process them here. Processing will be done later, in a regular loop routine.
+     //This function is supposed to be called by an interrupt
+    unsigned char buf=0;    //a buffer variable to store value read from serial
+    while (Serial.available()>0)
+    {
+      buf=Serial.read();  //reading the value
+      
+      if (v_BT_incoming_buffer_length==0)  //if noting in buffer - no change in last and start!!!
+      {
+        v_BT_incoming_buffer_length++;
+        v_BT_incoming_buffer_last=v_BT_incoming_buffer_start;
+        v_BT_incoming_buffer[v_BT_incoming_buffer_last]=buf;  
+      }else
+      {
+        v_BT_incoming_buffer_length++;
+        v_BT_incoming_buffer_last++;
+        if (v_BT_incoming_buffer_last>=c_BT_incoming_buffer_size) v_BT_incoming_buffer_last-=c_BT_incoming_buffer_size;
+        if (v_BT_incoming_buffer_length>c_BT_incoming_buffer_size)
+        {  //buffer overflow!!!
+          //TODO: decide, what to do in this case. Simplest solution - clear the buffer
+          v_BT_incoming_buffer_last=0;  //clearing the buffer
+          v_BT_incoming_buffer_start=0;
+          v_BT_incoming_buffer_length=1;
+        };  
+        v_BT_incoming_buffer[v_BT_incoming_buffer_last]=buf; //and storing the received value as the first one here
+      }
+    }
+  }
+
+  void f_BT_inform_short_term_temperature_alarm(int temperature)  //short alarm received
+  {
+    f_BT_update_token_alarm();  //updating alarm token
+    //output the alarm to bluetooth
+        /*DEBUG*/  Serial.print("New short term alarm with temperature:");
+               Serial.print("\t");  
+               Serial.print(temperature);
+               Serial.print("\t");   
+               Serial.print("on:");
+               Serial.print("\t");  
+               Serial.print(global_timer);
+               Serial.print("\t");  
+               Serial.print("with token:");
+               Serial.print("\t");  
+               Serial.println(v_BT_current_token_alarm);
+     //TODO: implement circular buffer for short term alarm messages
+  }
+  
+  void f_BT_inform_long_term_temperature_alarm(int temperature)  //long alarm received
+  {
+    f_BT_update_token_alarm();  //updating alarm token
+    //output the alarm to bluetooth
+        /*DEBUG*/  Serial.print("New long term alarm with temperature:");
+               Serial.print("\t");  
+               Serial.print(temperature);
+               Serial.print("\t");  
+               Serial.print("on:");
+               Serial.print("\t");  
+               Serial.print(global_timer);
+               Serial.print("\t");  
+               Serial.print("with token:");
+               Serial.print("\t");  
+               Serial.println(v_BT_current_token_alarm);
+     //TODO: implement circular buffer for long term alarm messages
+  }
+  
+  void f_BT_loop_updated()
+  {
+    unsigned char buf=0;
+    while (f_BT_incoming_buffer_not_empty())
+    {
+      buf=f_BT_read_from_buffer();  //reading char from the buf
+      //And in the future the whole BTP protocol will be implemented. Now - only 1-byte no-parameters commands are recognized
+      switch (buf){
+        case 'Z':   //disable all current alarms
+          f_UI_disable_all_alarms();  //send a message to UI block
+          break;
+        case 'D':  //read all data
+
+          Serial.print("Currentl temperature: ");  //outputting current data
+          Serial.print("\t");
+          if (v_DS_counter>0)  //if any points collected currently - output average temp
+          {
+            signed long temp_buf=v_DS_accumulator/v_DS_counter;
+            Serial.println(temp_buf);
+          }else  //otherwise - output "no data collected yet"
+          {
+            Serial.println("No data collected yet");            
+          }
+          
+          for (int i=0; i<c_DS_number_of_buffers;i++)
+          {
+            Serial.print("Buffer");
+            Serial.print("\t");
+            Serial.print(i);
+            Serial.print("\t");
+            Serial.print("Last updated:");
+            Serial.print("\t");
+            Serial.print(v_DS_buffers[i].time_stamp);
+            Serial.print("\t");
+            Serial.print("Number of records:");
+            Serial.print("\t");
+            Serial.println(v_DS_buffers[i].length);
+            int index=v_DS_buffers[i].current-1;
+            if (index<0) index+=v_DS_buffers[i].length_max;
+            for (int k=0;k<v_DS_buffers[i].length;k++) //output buffer values
+            {
+              Serial.print(v_DS_buffers[i].data[index]);
+              Serial.print("\t");
+              index--;
+              if (index<0) index+=v_DS_buffers[i].length_max;
+            }
+            
+            Serial.println("\t");
+          };
+          break;
+        default:  //command not recognized
+          f_BT_return_unknown_command();  //send "unknown command"
+          break;
+      };
+    };
+    
+    //TODO: implement reading of external messages
+    /*
+      TODO:
+      External messages to be monitored:
+        Read all data
+        Confirm token
+        Read alarm data
+        Confirm alarm token (same as Delete alarm data)
+        Disable active alarms
+        Set data acquisition timer to ... (to receive data in the beginning of an hour, etc.) (later)
+        Change some device parameters (such as timers durations etc.) (later)        
+    */
+  }
+
+  unsigned int f_BT_update_token()  //increase token upon receipt of a new data
+  {
+    v_BT_current_token++;                                                  //as new data received, the token has to be updated
+    if (v_BT_current_token==v_BT_last_confirmed_token) v_BT_current_token++;         //this serves as a protection, so that iPhone will not get a token that was recently confirmed
+    if (v_BT_current_token>c_BT_TOKEN_MAX)  v_BT_current_token=c_BT_TOKEN_START;                //making sure that token value is withing limits
+    if (v_BT_current_token==c_BT_TOKEN_NEVER_CONNECTED) v_BT_current_token=c_BT_TOKEN_START;    //making sure that token value is not TOKEN_NEVER_CONNECTED
+    if (v_BT_current_token==c_BT_TOKEN_CONNECTION_INIT) v_BT_current_token=c_BT_TOKEN_START;    //making sure that token value is not TOKEN_CONNECTION_INIT
+    return v_BT_current_token;
+  }
+  
+  unsigned int f_BT_update_token_alarm()  //increase token upon receipt of a new data
+  {
+    v_BT_current_token_alarm++;                                                  //as new error messages were received, the token has to be updated
+    if (v_BT_current_token_alarm==v_BT_last_confirmed_token_alarm) v_BT_current_token_alarm++;         //this serves as a protection, so that iPhone will not get a token that was recently confirmed
+    if (v_BT_current_token_alarm>c_BT_TOKEN_MAX)  v_BT_current_token_alarm=c_BT_TOKEN_START;                //making sure that token value is withing limits
+    if (v_BT_current_token_alarm==c_BT_TOKEN_NEVER_CONNECTED) v_BT_current_token_alarm=c_BT_TOKEN_START;    //making sure that token value is not TOKEN_NEVER_CONNECTED
+    if (v_BT_current_token_alarm==c_BT_TOKEN_CONNECTION_INIT) v_BT_current_token_alarm=c_BT_TOKEN_START;    //making sure that token value is not TOKEN_CONNECTION_INIT
+    return v_BT_current_token_alarm;
+  }
+
+  void f_BT_new_averaged_data(int data, int buffer_level)    //new averaged obtained in DS in the circular buffer of level buffer_level
+  {
+    f_BT_update_token();
+    /*DEBUG*/  Serial.print("New data:");
+               Serial.print("\t");  
+               Serial.print(data);
+               Serial.print("\t");  
+               Serial.print("in buffer:");
+               Serial.print("\t");  
+               Serial.print(buffer_level);
+               Serial.print("\t");  
+               Serial.print("on:");
+               Serial.print("\t");  
+               Serial.print(global_timer);
+               Serial.print("\t");  
+               Serial.print("with token:");
+               Serial.print("\t");
+               Serial.println(v_BT_current_token);
+              
+  }
 
 //! Data storage block (DS)
   void f_DS_datum_received(int data_received)    //function from DA with new temperature read
@@ -365,6 +608,7 @@ Started on November, 19 2013
       f_DQ_timer_updated(global_timer);
       f_DS_timer_updated(global_timer);
     }
+    if (Serial.available()>0) f_BT_serial_available();  //will be changed to an interrupt in a PIC firmware
     f_UI_loop_updated();   //and calling all "real-time" functions as well
     f_BT_loop_updated();  
     last_millis=new_millis;    //saving timer in last_millis
@@ -496,7 +740,7 @@ void setup(){
   //!DS
         //defining QH circular buffer
     v_DS_buffers[c_DS_qh].length_max=4;
-    v_DS_buffers[c_DS_qh].start=1;    //it must be 1, not 0, due to data processing procedure in DS block!!!
+    v_DS_buffers[c_DS_qh].start=0;    
     v_DS_buffers[c_DS_qh].current=0;
     v_DS_buffers[c_DS_qh].length=0; 
     v_DS_buffers[c_DS_qh].time_stamp=0;
@@ -504,7 +748,7 @@ void setup(){
     
       //defining H circular buffer
     v_DS_buffers[c_DS_h].length_max=24;
-    v_DS_buffers[c_DS_h].start=1;
+    v_DS_buffers[c_DS_h].start=0;
     v_DS_buffers[c_DS_h].current=0;
     v_DS_buffers[c_DS_h].length=0; 
     v_DS_buffers[c_DS_h].time_stamp=0;
@@ -512,7 +756,7 @@ void setup(){
     
       //defining D circular buffer
     v_DS_buffers[c_DS_d].length_max=28;
-    v_DS_buffers[c_DS_d].start=1;
+    v_DS_buffers[c_DS_d].start=0;
     v_DS_buffers[c_DS_d].current=0;
     v_DS_buffers[c_DS_d].length=0; 
     v_DS_buffers[c_DS_d].time_stamp=0;
