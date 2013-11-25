@@ -5,6 +5,8 @@ By Aleksey Shaporev, Clemson University
 Started on November, 19 2013
 */
 
+//TODO: eliminate millis!!!! Or make a function millis() for PIC later
+
 //"HEADER"
 
 //! Data acquisition block (DQ)
@@ -144,7 +146,7 @@ Started on November, 19 2013
   signed long v_UI_short_term_alarm_duration=c_UI_short_term_alarm_duration_default;  //actual durations of alarms
   signed long v_UI_long_term_alarm_duration=c_UI_long_term_alarm_duration_default;
   signed long v_UI_weak_alarm_duration=c_UI_weak_alarm_duration_default;
-  signed long v_UI_current_millis=millis();
+  signed long v_UI_current_millis=millis();    //
   
   
   //Incoming signals
@@ -157,7 +159,7 @@ Started on November, 19 2013
 //! Data storage block (DS)
 
   //Variables
-  const int c_DS_invalid_data=-100;
+  const int c_DS_invalid_data=-100;    //Stands for "invalid data" - e.g. when no data were recorded during a step. 
   
   typedef struct CircularBuffer  //this is a type for various circular buffers
   {
@@ -166,6 +168,12 @@ Started on November, 19 2013
     int current;  //the number of record to which data WILL be written upon receipt of a new datum
     int * data;  //array with data
     int length;  //number of actually loaded values
+    int counter;  //number of data points actually recorded towards generation of higher level buffer data
+    int counter_max;  //number of data points after which higher buffer data should be generated
+      /*concept of counter/counter_max: as soon as new datum is received, counter is increased by 1. 
+        When counter reaches counter_max, it is turned to zero, and a higher level buffer data is generated.
+        It allows to have circular buffer of higher capacity than number of averaged data points (counter_max)
+      */
     signed long time_stamp;
   } CircularBuffer;
   
@@ -342,7 +350,7 @@ Started on November, 19 2013
           break;
         case 'D':  //read all data
 
-          Serial.print("Currentl temperature: ");  //outputting current data
+          Serial.print("Current temperature: ");  //outputting current data
           Serial.print("\t");
           if (v_DS_counter>0)  //if any points collected currently - output average temp
           {
@@ -468,7 +476,11 @@ Started on November, 19 2013
         v_DS_buffers[i].length++;  //increasing number of data stored in the array
         if (v_DS_buffers[i].length>v_DS_buffers[i].length_max) v_DS_buffers[i].length=v_DS_buffers[i].length_max;  //if it exceeds buffer capacity - it obviously must be set to buffer capacity
         v_DS_buffers[i].time_stamp=new_timer;  //setting time stamp of the last data stored
-        if ((v_DS_buffers[i].current==v_DS_buffers[i].start)&&(v_DS_buffers[i].length==v_DS_buffers[i].length_max))
+        v_DS_buffers[i].counter++;  //increasing number of points counting towards generation of high-level data
+        v_DS_buffers[i].counter%=v_DS_buffers[i].counter_max;  //if it is higher than counter_max - convert it to zero and generate higher level buffer data
+        if ((v_DS_buffers[i].counter==0)&&(v_DS_buffers[i].length>=v_DS_buffers[i].counter_max))
+          //two conditions must be met for generation of higher-level buffer data: counter reached counter_max (thus converted to 0); 
+          //and number of data points must be greater or equal to counter_max
         {//so new datum must be added to next buffer
           v_DS_accumulator=0;
           v_DS_counter=0;
@@ -622,7 +634,6 @@ Started on November, 19 2013
     v_DA_timer_counter%=c_DA_execution_step;  //checking if this counter reached treshold for temperature measurement
     if (v_DA_timer_counter>0) return;  //if treshold not met - do nothing, otherwise continue - perform temperature measurement and submit data to DA
     int datum=f_DQ_convert_temp(analogRead(c_DA_temperature_sensor_pin));    //reading the temperature
-    /*DEBUG*/ Serial.println(datum);
     f_DA_raw_data_received(datum);        //sending data to DA
   }
   
@@ -739,11 +750,13 @@ void setup(){
   
   //!DS
         //defining QH circular buffer
-    v_DS_buffers[c_DS_qh].length_max=4;
+    v_DS_buffers[c_DS_qh].length_max=12;
     v_DS_buffers[c_DS_qh].start=0;    
     v_DS_buffers[c_DS_qh].current=0;
     v_DS_buffers[c_DS_qh].length=0; 
     v_DS_buffers[c_DS_qh].time_stamp=0;
+    v_DS_buffers[c_DS_qh].counter=0;
+    v_DS_buffers[c_DS_qh].counter_max=4;
     v_DS_buffers[c_DS_qh].data=(int*)(malloc(v_DS_buffers[c_DS_qh].length_max * sizeof(int))); 
     
       //defining H circular buffer
@@ -752,6 +765,8 @@ void setup(){
     v_DS_buffers[c_DS_h].current=0;
     v_DS_buffers[c_DS_h].length=0; 
     v_DS_buffers[c_DS_h].time_stamp=0;
+    v_DS_buffers[c_DS_h].counter=0;
+    v_DS_buffers[c_DS_h].counter_max=24;
     v_DS_buffers[c_DS_h].data=(int*)malloc(v_DS_buffers[c_DS_h].length_max * sizeof(int)); 
     
       //defining D circular buffer
@@ -760,6 +775,8 @@ void setup(){
     v_DS_buffers[c_DS_d].current=0;
     v_DS_buffers[c_DS_d].length=0; 
     v_DS_buffers[c_DS_d].time_stamp=0;
+    v_DS_buffers[c_DS_d].counter=0;
+    v_DS_buffers[c_DS_d].counter_max=28;
     v_DS_buffers[c_DS_d].data=(int*)malloc(v_DS_buffers[c_DS_d].length_max * sizeof(int));  
     
     for (int i=0; i<c_DS_number_of_buffers;i++)
