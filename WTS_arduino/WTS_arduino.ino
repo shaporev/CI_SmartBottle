@@ -4,24 +4,37 @@ Created for Mark Vladimir Reukov
 By Aleksey Shaporev, Clemson University
 Started on November, 19 2013
 */
-
 //TODO: eliminate millis!!!! Or make a function millis() for PIC later
 
 //"HEADER"
+
+//types declaration; may be compiler-specific
+  typedef long timer_T; 
+  typedef int sensor_value_T;  //value read from sensor. As 10-bit ADC - unsigned int16
+
+  typedef signed int si16_T;  //signed int 16, for counters. Somewhere int may be 8-bit by default, or 24-48 bit, no one needs problems with that
+  typedef signed char si8_T;  //signed int 8
+  typedef signed long si32_T;  //signed int 32
+  typedef unsigned char ui8_T;  //unsigned int 8
+  typedef int raw_temp_T;    //temperature to be stored in memory. Expected default - signed int8
+  
+  typedef si8_T circular_buffer_index_T;  //type for circular buffer; affecting the capacity of the buffer - either 255 elements (8-bit), or more
+  
+   
 
 //! Data acquisition block (DQ)
   //Description:
     //Regularly checks temperature and regularly submits them to data analysis block  
   //Internal functions:
-    int f_DQ_convert_temp(int sensorValue);  //This function converts signal from the temperature sensor into degrees
+    raw_temp_T  f_DQ_convert_temp(sensor_value_T  sensorValue);  //This function converts signal from the temperature sensor into degrees
   //Incoming signals:
-    void f_DQ_timer_updated(long new_timer);  //called regularly to perform temperature measurements and when necessary - raw data submission for analysis
+    void f_DQ_timer_updated(timer_T  new_timer);  //called regularly to perform temperature measurements and when necessary - raw data submission for analysis
   //Outgoing signals:
     //f_DA_raw_data_received(raw_data);
   //Variables:
-    signed int v_DA_timer_counter=0;  //The variable that stores number of f_DQ_timer_updated() executions to only perform temperature test once per 
-    const signed int c_DA_execution_step=1;  //The constant defining that temperature readings will occur only once per c_DA_execution_step executions of f_DQ_timer_updated() 
-    const int c_DA_temperature_sensor_pin = A1;  
+    si16_T v_DQ_timer_counter=0;  //The variable that stores number of f_DQ_timer_updated() executions to only perform temperature test once per 
+    const si8_T c_DQ_execution_step=1;  //The constant defining that temperature readings will occur only once per c_DQ_execution_step executions of f_DQ_timer_updated() 
+    const int c_DQ_temperature_sensor_pin = A1;  //TODO: move to compiler-specific!!! As well as reading procedure
 
 //! Data analysis block (DA)
   /*
@@ -32,9 +45,9 @@ Started on November, 19 2013
   //Internal functions:
     
   //Incoming signals:
-    void f_DA_timer_updated(long new_timer);
+    void f_DA_timer_updated(timer_T  new_timer);
       //Upon receipt: analyze whether short- or long-term steps are completed, if so - process new step
-    void f_DA_raw_data_received(int raw_data);    
+    void f_DA_raw_data_received(raw_temp_T  raw_data);    
       //Add data to DS, check whether new short- or long-term data are generated and respond with corresponding reaction
       
   //Outgoing signals:
@@ -47,9 +60,9 @@ Started on November, 19 2013
     //DS_read_values_since(reference_time);  //TODO: implement internal tokens! //TODO: consider better way to do so
     
   //Variables:
-    const signed long c_DA_timer_never = -2000000000;  //TODO: change to -LONG_MAX
+    const timer_T c_DA_timer_never = -2000000000;  //TODO: change to -LONG_MAX
     
-    long v_DA_last_raw_data_timer=c_DA_timer_never;    //the timestamp value with last data received
+    timer_T v_DA_last_raw_data_timer=c_DA_timer_never;    //the timestamp value with last data received
     
     /*
       Short-term alarm: it is generated if within v_DA_short_term_alarm_step_interval it was observed that the temperature is lower than
@@ -57,15 +70,15 @@ Started on November, 19 2013
       If it happens - a light alarm is generated, and an BT alarm is sent.
       Difference from long-term alarm - it allows slightly higher volatility of temperatures (combats with 'spikes').        
     */
-  /*DEBUG*/   const int c_DA_short_term_alarm_step_interval_default=10;    //the duration of a single short term data averaging segment - default
-    const int c_DA_short_term_alarm_low_temp_default=10;         //default temperature considered as LOW for short-term alarm
- /*DEBUG*/   const int c_DA_short_term_alarm_high_temp_default=26;         //default temperature considered as HIGH for short-term alarm
-    int v_DA_short_term_alarm_step_interval=c_DA_short_term_alarm_step_interval_default;  //the duration of a single short term data averaging segment
-    int v_DA_short_term_alarm_low_temp=c_DA_short_term_alarm_low_temp_default;  //currently set LOW treshold for short temp alarm
-    int v_DA_short_term_alarm_high_temp=c_DA_short_term_alarm_high_temp_default;  //currently set HIGH treshold for short temp alarm
-    long v_DA_last_short_term_step_timer= c_DA_timer_never;      //the timestamp indicating when last short-term alarm step was completed   
-    signed int v_DA_short_term_data_counter=0;       //Number of data points averaged since last short-term alarm ster  
-    signed long v_DA_short_term_data_accumulator=0;  //Sum of all raw data received since last short-term alarm ster 
+  /*DEBUG*/   const si16_T  c_DA_short_term_alarm_step_interval_default=10;    //the duration of a single short term data averaging segment - default
+    const raw_temp_T  c_DA_short_term_alarm_low_temp_default=10;         //default temperature considered as LOW for short-term alarm
+ /*DEBUG*/   const raw_temp_T c_DA_short_term_alarm_high_temp_default=26;         //default temperature considered as HIGH for short-term alarm
+    si16_T  v_DA_short_term_alarm_step_interval=c_DA_short_term_alarm_step_interval_default;  //the duration of a single short term data averaging segment
+    raw_temp_T  v_DA_short_term_alarm_low_temp=c_DA_short_term_alarm_low_temp_default;  //currently set LOW treshold for short temp alarm
+    raw_temp_T  v_DA_short_term_alarm_high_temp=c_DA_short_term_alarm_high_temp_default;  //currently set HIGH treshold for short temp alarm
+    timer_T  v_DA_last_short_term_step_timer= c_DA_timer_never;      //the timestamp indicating when last short-term alarm step was completed   
+    si16_T  v_DA_short_term_data_counter=0;       //Number of data points averaged since last short-term alarm ster  
+    si32_T  v_DA_short_term_data_accumulator=0;  //Sum of all raw data received since last short-term alarm ster 
     
     
     
@@ -75,31 +88,31 @@ Started on November, 19 2013
       If it happens - a light alarm is generated, and an BT alarm is sent.
       Difference from long-term alarm - it allows slightly higher volatility of temperatures (combats with 'spikes').        
     */
-    const int c_DA_long_term_alarm_step_interval_default=300;       //the duration of a single long term data averaging segment
-    const int c_DA_long_term_alarm_low_temp_default=14;         //default temperature considered as LOW for long-term alarm
-    const int c_DA_long_term_alarm_high_temp_default=36;         //default temperature considered as HIGH for long-term alarm
-    int v_DA_long_term_alarm_step_interval=c_DA_long_term_alarm_step_interval_default;  //the duration of a single long term data averaging segment
-    int v_DA_long_term_alarm_low_temp=c_DA_long_term_alarm_low_temp_default;  //currently set LOW treshold for long temp alarm
-    int v_DA_long_term_alarm_high_temp=c_DA_long_term_alarm_high_temp_default;  //currently set HIGH treshold for long temp alarm
-    long v_DA_last_long_term_step_timer= c_DA_timer_never;      //the timestamp indicating when last long-term alarm step was completed   
-    signed int v_DA_long_term_data_counter=0;       //Number of data points averaged since last long-term alarm step
-    signed long v_DA_long_term_data_accumulator=0;  //Sum of all raw data received since last long-term alarm step
+    const si16_T  c_DA_long_term_alarm_step_interval_default=300;       //the duration of a single long term data averaging segment
+    const raw_temp_T  c_DA_long_term_alarm_low_temp_default=14;         //default temperature considered as LOW for long-term alarm
+    const raw_temp_T  c_DA_long_term_alarm_high_temp_default=36;         //default temperature considered as HIGH for long-term alarm
+    si16_T  v_DA_long_term_alarm_step_interval=c_DA_long_term_alarm_step_interval_default;  //the duration of a single long term data averaging segment
+    raw_temp_T  v_DA_long_term_alarm_low_temp=c_DA_long_term_alarm_low_temp_default;  //currently set LOW treshold for long temp alarm
+    raw_temp_T  v_DA_long_term_alarm_high_temp=c_DA_long_term_alarm_high_temp_default;  //currently set HIGH treshold for long temp alarm
+    timer_T  v_DA_last_long_term_step_timer= c_DA_timer_never;      //the timestamp indicating when last long-term alarm step was completed   
+    si16_T  v_DA_long_term_data_counter=0;       //Number of data points averaged since last long-term alarm step
+    si32_T  v_DA_long_term_data_accumulator=0;  //Sum of all raw data received since last long-term alarm step
     
     
 //! System block (SY)
   //Variables
-    signed long global_timer=0;    //A variable that stores internal global timer. MAY be accessed globally to avoid unnecessary stack business
-    signed long global_timer_rest=0; //A variable keeping milliseconds of internal global timer
-    signed long last_millis=0;      //last ms timer value received during update
+    timer_T  global_timer=0;    //A variable that stores internal global timer. MAY be accessed globally to avoid unnecessary stack business
+    timer_T  global_timer_rest=0; //A variable keeping milliseconds of internal global timer
+    timer_T  last_millis=0;      //last ms timer value received during update
     
   //Incoming signals
     void f_SY_loop_updated();  
   //Outgoing signals
     //UI and BT are "real-time" updates since they are time-sensitive. Other ones have 1-sec execution interval
-    // void f_DA_timer_updated(long new_timer); 
-    // void f_DQ_timer_updated(long new_timer);
+    // void f_DA_timer_updated(timer_T  new_timer); 
+    // void f_DQ_timer_updated(timer_T  new_timer);
     // void f_UI_loop_updated();    
-    // void f_DS_timer_updated(long new_timer);
+    // void f_DS_timer_updated(timer_T  new_timer);
     // void f_BT_loop_updated();
     
     
@@ -114,7 +127,7 @@ Started on November, 19 2013
   */
   
   //Variables
-  const int c_UI_led_pin=4;  //a pin to which LED is connected
+  const int c_UI_led_pin=4;  //a pin to which LED is connected //TODO: move this, next 2 lines, and reading into compiler-specific section!!!
   const int c_UI_led_off=LOW;  //constants to store values that should be assigned to c_UI_led_pin to glow/shut down LED
   const int c_UI_led_on=HIGH;  //it is important since for some devices you need to output LOW to LED to glow it.
   
@@ -123,15 +136,15 @@ Started on November, 19 2013
     boolean allowed;    //whether alarm should affect LED at all, or not
     boolean enabled;    //whether alarm is launched or not (LED may be on or off, depending on a cycle)
     boolean led_on;     //whether in the current cycle LED is on
-    signed long toggle_timer;  //time when LED should be toggled (millis!!!)
-    int on_duration;    //duration of an ON cycle  (millis!!!)
-    int off_duration;   //duration of an OFF cycle  (millis!!!)
-    signed long disable_timer;    //time when to disable the alarm (seconds!!!)
+    timer_T  toggle_timer;  //time when LED should be toggled (millis!!!)
+    si16_T  on_duration;    //duration of an ON cycle  (millis!!!)
+    si16_T  off_duration;   //duration of an OFF cycle  (millis!!!)
+    timer_T  disable_timer;    //time when to disable the alarm (seconds!!!)
   } Alarm;
-  const int c_UI_number_of_alarms=3; //Short, long, weak
-  const int c_UI_short_alarm=2;  //aliases to access arrays elements
-  const int c_UI_long_alarm=1;
-  const int c_UI_weak_alarm=0;
+  const si8_T  c_UI_number_of_alarms=3; //Short, long, weak
+  const si8_T  c_UI_short_alarm=2;  //aliases to access arrays elements
+  const si8_T  c_UI_long_alarm=1;
+  const si8_T  c_UI_weak_alarm=0;
 
   const Alarm c_UI_default_alarms[c_UI_number_of_alarms]=    //Default values for different alarms
   {
@@ -140,13 +153,13 @@ Started on November, 19 2013
       {true,false,false,0,250,250,2000000000}
   };
   Alarm v_UI_alarms[c_UI_number_of_alarms]; //array with all alarms parameters
-  const signed long c_UI_short_term_alarm_duration_default=c_DA_short_term_alarm_step_interval_default;  //default durations of alarms
-  const signed long c_UI_long_term_alarm_duration_default=c_DA_long_term_alarm_step_interval_default;
-  const signed long c_UI_weak_alarm_duration_default=c_DA_long_term_alarm_step_interval_default*10;
-  signed long v_UI_short_term_alarm_duration=c_UI_short_term_alarm_duration_default;  //actual durations of alarms
-  signed long v_UI_long_term_alarm_duration=c_UI_long_term_alarm_duration_default;
-  signed long v_UI_weak_alarm_duration=c_UI_weak_alarm_duration_default;
-  signed long v_UI_current_millis=millis();    //
+  const timer_T  c_UI_short_term_alarm_duration_default=c_DA_short_term_alarm_step_interval_default;  //default durations of alarms
+  const timer_T  c_UI_long_term_alarm_duration_default=c_DA_long_term_alarm_step_interval_default;
+  const timer_T  c_UI_weak_alarm_duration_default=c_DA_long_term_alarm_step_interval_default*10;
+  timer_T  v_UI_short_term_alarm_duration=c_UI_short_term_alarm_duration_default;  //actual durations of alarms
+  timer_T  v_UI_long_term_alarm_duration=c_UI_long_term_alarm_duration_default;
+  timer_T  v_UI_weak_alarm_duration=c_UI_weak_alarm_duration_default;
+  timer_T  v_UI_current_millis=millis();    //TODO!!! - fix millis()!!!
   
   
   //Incoming signals
@@ -159,43 +172,44 @@ Started on November, 19 2013
 //! Data storage block (DS)
 
   //Variables
-  const int c_DS_invalid_data=-100;    //Stands for "invalid data" - e.g. when no data were recorded during a step. 
+  const raw_temp_T c_DS_invalid_data=-100;    //Stands for "invalid data" - e.g. when no data were recorded during a step. 
+  const timer_T  c_DS_significant_timer_difference=10;  //treshold for timers to be considered significantly different
   
   typedef struct CircularBuffer  //this is a type for various circular buffers
   {
-    int length_max;  //capacity of a buffer
-    int start;  //when current will become equal to start, next CB data will be added
-    int current;  //the number of record to which data WILL be written upon receipt of a new datum
-    int * data;  //array with data
-    int length;  //number of actually loaded values
-    int counter;  //number of data points actually recorded towards generation of higher level buffer data
-    int counter_max;  //number of data points after which higher buffer data should be generated
+    circular_buffer_index_T  length_max;  //capacity of a buffer
+    circular_buffer_index_T  start;  //when current will become equal to start, next CB data will be added
+    circular_buffer_index_T  current;  //the number of record to which data WILL be written upon receipt of a new datum
+    raw_temp_T  * data;  //array with data
+    circular_buffer_index_T  length;  //number of actually loaded values
+    circular_buffer_index_T  counter;  //number of data points actually recorded towards generation of higher level buffer data
+    circular_buffer_index_T  counter_max;  //number of data points after which higher buffer data should be generated
       /*concept of counter/counter_max: as soon as new datum is received, counter is increased by 1. 
         When counter reaches counter_max, it is turned to zero, and a higher level buffer data is generated.
         It allows to have circular buffer of higher capacity than number of averaged data points (counter_max)
       */
-    signed long time_stamp;
+    timer_T  time_stamp;
   } CircularBuffer;
   
-  const int c_DS_qh=0;  //alias to quarter-hourly buffer
-  const int c_DS_h=1;    //alias to hourly buffer
-  const int c_DS_d=2;    //alias to daily buffer
-  const int c_DS_number_of_buffers=3;   //number of buffers
+  const si8_T  c_DS_qh=0;  //alias to quarter-hourly buffer
+  const si8_T  c_DS_h=1;    //alias to hourly buffer
+  const si8_T  c_DS_d=2;    //alias to daily buffer
+  const si8_T  c_DS_number_of_buffers=3;   //number of buffers
   
   CircularBuffer v_DS_buffers[c_DS_number_of_buffers];  //array with all circular buffers
   
 
 
   /*DEBUG*/
-  const int c_DS_timer_interval=9;  //900 seconds - the interval between timepoints additions to the first CB
-  signed long v_DS_timer=c_DS_timer_interval;  //a timer after which data will be written to CB. In seconds!
-  int v_DS_counter=0;  //number of data point averaged
-  signed long v_DS_accumulator=0;  //accumulator of data point received from DA
+  const si16_T  c_DS_timer_interval=9;  //900 seconds - the interval between timepoints additions to the first CB
+  timer_T  v_DS_timer=c_DS_timer_interval;  //a timer after which data will be written to CB. In seconds!
+  si16_T  v_DS_counter=0;  //number of data point averaged
+  si32_T  v_DS_accumulator=0;  //accumulator of data point received from DA
   
   
   //Incoming signals
-  void f_DS_datum_received(int data_received);    //function from DA with new temperature read
-  void f_DS_timer_updated(long new_timer);        //updater upon timer update
+  void f_DS_datum_received(raw_temp_T  data_received);    //function from DA with new temperature read
+  void f_DS_timer_updated(timer_T  new_timer);        //updater upon timer update
 
   //TODO: read data from the DS
   
@@ -214,37 +228,53 @@ Started on November, 19 2013
   #define c_BT_TOKEN_CONNECTION_INIT 1          //an initial value that can only be set to token (v_BT_current_token) after the start of the device
   #define c_BT_TOKEN_START 2                    //limits of token values - tokens are supposed to be between TOKEN_START and TOKEN_MAX
   #define c_BT_TOKEN_MAX 250
-  unsigned int v_BT_current_token = c_BT_TOKEN_CONNECTION_INIT;             //the token value that was generated after last data receipt
-  unsigned int v_BT_last_confirmed_token = c_BT_TOKEN_NEVER_CONNECTED;      //last token value that was confirmed by phone
+  ui8_T  v_BT_current_token = c_BT_TOKEN_CONNECTION_INIT;             //the token value that was generated after last data receipt
+  ui8_T  v_BT_last_confirmed_token = c_BT_TOKEN_NEVER_CONNECTED;      //last token value that was confirmed by phone
 
     //alarm tokens - are tokens informing the phone whether new alarm messages were received, thus helping to sync data erase process
-  unsigned int v_BT_current_token_alarm = c_BT_TOKEN_CONNECTION_INIT;             //the alarm token value that was generated after last data receipt
-  unsigned int v_BT_last_confirmed_token_alarm = c_BT_TOKEN_NEVER_CONNECTED;      //last alarm token value that was confirmed by phone
-  const int c_BT_incoming_buffer_size=20;    //size of an incoming messages buffer
-  unsigned char v_BT_incoming_buffer[c_BT_incoming_buffer_size];  //incoming messages buffer
-  int v_BT_incoming_buffer_start=0;    //position of the start symbol
-  int v_BT_incoming_buffer_last=0;  //position of the last symbol in this circular buffer
-  int v_BT_incoming_buffer_length=0;  //number of symbols in the circular buffer
+  ui8_T  v_BT_current_token_alarm = c_BT_TOKEN_CONNECTION_INIT;             //the alarm token value that was generated after last data receipt
+  ui8_T  v_BT_last_confirmed_token_alarm = c_BT_TOKEN_NEVER_CONNECTED;      //last alarm token value that was confirmed by phone
+  const si8_T  c_BT_incoming_buffer_size=20;    //size of an incoming messages buffer
+  ui8_T  v_BT_incoming_buffer[c_BT_incoming_buffer_size];  //incoming messages buffer
+  si8_T  v_BT_incoming_buffer_start=0;    //position of the start symbol
+  si8_T  v_BT_incoming_buffer_last=0;  //position of the last symbol in this circular buffer
+  si8_T  v_BT_incoming_buffer_length=0;  //number of symbols in the circular buffer
   
 
   //Incoming signals
-  void f_BT_new_averaged_data(int data, int buffer_level);    //new averaged obtained in DS in the circular buffer of level buffer_level
-  void f_BT_serial_available();  //IMPORTANT! Essential for systems with limited UART buffer (like PIC) to connect an interrupt to it
+  void f_BT_new_averaged_data(raw_temp_T  data, si8_T  buffer_level);    //new averaged obtained in DS in the circular buffer of level buffer_level
+  void f_BT_read_from_serial();  //IMPORTANT! Essential for systems with limited UART buffer (like PIC) to connect an interrupt to it
   void f_BT_loop_updated();  //update of BT (including check for new messages available) upon loop 
-  void f_BT_inform_short_term_temperature_alarm(int temperature);  //short alarm received
-  void f_BT_inform_long_term_temperature_alarm(int temperature);  //long alarm received
+  void f_BT_inform_short_term_temperature_alarm(raw_temp_T  temperature);  //short alarm received
+  void f_BT_inform_long_term_temperature_alarm(raw_temp_T  temperature);  //long alarm received
   //Outgoing signals
   
   //Internal functions
-  unsigned int f_BT_update_token();  //increase token upon receipt of a new data
-  unsigned int f_BT_update_token_alarm();  //increase alarm token upon receipt of a new data
-  unsigned char f_BT_read_from_buffer();  //reading char from incoming message buffer
+  ui8_T  f_BT_update_token();  //increase token upon receipt of a new data
+  ui8_T  f_BT_update_token_alarm();  //increase alarm token upon receipt of a new data
+  ui8_T  f_BT_read_from_buffer();  //reading char from incoming message buffer
   boolean f_BT_incoming_buffer_not_empty();  //returns whether incoming buffer is empty or not
   void f_BT_return_unknown_command();  //sends "Unknown command" to the phone.
+  boolean f_BT_serial_available();    //returns true/false based on whether new UART/serial data available for reading or not
+      //added for cross-compiler independency
+  ui8_T  f_BT_read_char_from_serial();    //reads char from UART/serial. Added for cross-compiler independency. Implementation is compiler-specific
   
 //IMPLEMENTATION
 
 //! External communications (BT) block
+
+    //CC!!!
+  boolean f_BT_serial_available()    //returns true/false based on whether new UART/serial data available for reading or not
+  {
+    return Serial.available();  //Arduino
+  }
+    //CC!!!
+  ui8_T  f_BT_read_char_from_serial()    //reads char from UART/serial. Added for cross-compiler independency
+  {
+    return Serial.read();    //Arduino
+  }
+
+    //CC!!!
   void f_BT_return_unknown_command()  //sends "Unknown command" to the phone.
   {
     Serial.println("Unknown command!");
@@ -255,11 +285,11 @@ Started on November, 19 2013
     return (v_BT_incoming_buffer_length!=0);  //by simply comparison of the length with zero.
   }
   
-  unsigned char f_BT_read_from_buffer()  //reading char from incoming message buffer
+  ui8_T  f_BT_read_from_buffer()  //reading char from incoming message buffer
   {
     if (v_BT_incoming_buffer_length>0)
     {
-      unsigned char buf=v_BT_incoming_buffer[v_BT_incoming_buffer_start];  //this is the first char in stack
+      ui8_T buf=v_BT_incoming_buffer[v_BT_incoming_buffer_start];  //this is the first char in stack
       v_BT_incoming_buffer_start++;  //moving index of the next char to read to next char in stack
       if (v_BT_incoming_buffer_start>=v_BT_incoming_buffer_length) v_BT_incoming_buffer_start-=v_BT_incoming_buffer_length;  //implementing circular buffer
       v_BT_incoming_buffer_length--;  //reducing the length
@@ -271,14 +301,15 @@ Started on November, 19 2013
     }
   }
   
-  void f_BT_serial_available()
+  void f_BT_read_from_serial()
   {  //Adds chars to a buffer, and DOES NOT process them here. Processing will be done later, in a regular loop routine.
      //This function is supposed to be called by an interrupt
-    unsigned char buf=0;    //a buffer variable to store value read from serial
-    while (Serial.available()>0)
+    ui8_T  buf=0;    //a buffer variable to store value read from serial
+    while (f_BT_serial_available()>0)
     {
-      buf=Serial.read();  //reading the value
+      buf=f_BT_read_char_from_serial();  //reading the value
       
+        //Storing the value in the buffer. It depends on whether there is something in the buffer or not
       if (v_BT_incoming_buffer_length==0)  //if noting in buffer - no change in last and start!!!
       {
         v_BT_incoming_buffer_length++;
@@ -300,8 +331,9 @@ Started on November, 19 2013
       }
     }
   }
-
-  void f_BT_inform_short_term_temperature_alarm(int temperature)  //short alarm received
+    
+    //CC!!!
+  void f_BT_inform_short_term_temperature_alarm(raw_temp_T  temperature)  //short alarm received
   {
     f_BT_update_token_alarm();  //updating alarm token
     //output the alarm to bluetooth
@@ -318,8 +350,9 @@ Started on November, 19 2013
                Serial.println(v_BT_current_token_alarm);
      //TODO: implement circular buffer for short term alarm messages
   }
-  
-  void f_BT_inform_long_term_temperature_alarm(int temperature)  //long alarm received
+    
+    //CC!!!
+  void f_BT_inform_long_term_temperature_alarm(raw_temp_T  temperature)  //long alarm received
   {
     f_BT_update_token_alarm();  //updating alarm token
     //output the alarm to bluetooth
@@ -337,15 +370,18 @@ Started on November, 19 2013
      //TODO: implement circular buffer for long term alarm messages
   }
   
+  
+      //TODO: fix. Make this function compiler-unspecific (with calls of compiler-specific ones)
   void f_BT_loop_updated()
   {
-    unsigned char buf=0;
+    ui8_T buf=0;
     while (f_BT_incoming_buffer_not_empty())
     {
       buf=f_BT_read_from_buffer();  //reading char from the buf
       //And in the future the whole BTP protocol will be implemented. Now - only 1-byte no-parameters commands are recognized
+      //TODO: fix
       switch (buf){
-        case 'Z':   //disable all current alarms
+        case 'Z':   //disable all current alarms   
           f_UI_disable_all_alarms();  //send a message to UI block
           break;
         case 'D':  //read all data
@@ -407,7 +443,7 @@ Started on November, 19 2013
     */
   }
 
-  unsigned int f_BT_update_token()  //increase token upon receipt of a new data
+  ui8_T  f_BT_update_token()  //increase token upon receipt of a new data
   {
     v_BT_current_token++;                                                  //as new data received, the token has to be updated
     if (v_BT_current_token==v_BT_last_confirmed_token) v_BT_current_token++;         //this serves as a protection, so that iPhone will not get a token that was recently confirmed
@@ -417,7 +453,7 @@ Started on November, 19 2013
     return v_BT_current_token;
   }
   
-  unsigned int f_BT_update_token_alarm()  //increase token upon receipt of a new data
+  ui8_T  f_BT_update_token_alarm()  //increase token upon receipt of a new data
   {
     v_BT_current_token_alarm++;                                                  //as new error messages were received, the token has to be updated
     if (v_BT_current_token_alarm==v_BT_last_confirmed_token_alarm) v_BT_current_token_alarm++;         //this serves as a protection, so that iPhone will not get a token that was recently confirmed
@@ -427,7 +463,9 @@ Started on November, 19 2013
     return v_BT_current_token_alarm;
   }
 
-  void f_BT_new_averaged_data(int data, int buffer_level)    //new averaged obtained in DS in the circular buffer of level buffer_level
+    //CC!!!
+    //TODO: fix, make non-CC
+  void f_BT_new_averaged_data(raw_temp_T  data, si8_T  buffer_level)    //new averaged obtained in DS in the circular buffer of level buffer_level
   {
     f_BT_update_token();
     /*DEBUG*/  Serial.print("New data:");
@@ -449,13 +487,13 @@ Started on November, 19 2013
   }
 
 //! Data storage block (DS)
-  void f_DS_datum_received(int data_received)    //function from DA with new temperature read
+  void f_DS_datum_received(raw_temp_T  data_received)    //function from DA with new temperature read
   {
     v_DS_counter++;    //just adding value to the accumulator and increasing counter. Check whether it is time to close session will be performed elsewhere
     v_DS_accumulator+=data_received;  
   }
 
-  void f_DS_timer_updated(long new_timer)        //updater upon timer update
+  void f_DS_timer_updated(timer_T  new_timer)        //updater upon timer update
   {  //this function updates all the buffers if necessary
     if (new_timer>v_DS_timer)  //if it is time to end averaging for quarter-hour data
     {
@@ -467,7 +505,7 @@ Started on November, 19 2013
         v_DS_accumulator=c_DS_invalid_data;
       }
       
-      for (int i=0;i<c_DS_number_of_buffers;i++) //adding data to buffers. If a buffer must update higher level buffer - it will be done here
+      for (si8_T  i=0;i<c_DS_number_of_buffers;i++) //adding data to buffers. If a buffer must update higher level buffer - it will be done here
       {
         f_BT_new_averaged_data(v_DS_accumulator, i);
         v_DS_buffers[i].data[v_DS_buffers[i].current]=v_DS_accumulator;  //storing datum in the data
@@ -484,7 +522,7 @@ Started on November, 19 2013
         {//so new datum must be added to next buffer
           v_DS_accumulator=0;
           v_DS_counter=0;
-          for (int k=0; k<v_DS_buffers[i].length;k++)  //calculating new datum as an average of all data in the buffer
+          for (circular_buffer_index_T  k=0; k<v_DS_buffers[i].length;k++)  //calculating new datum as an average of all data in the buffer
           {
             if (v_DS_buffers[i].data[k]!=c_DS_invalid_data)  //skipping invalid data points
             {
@@ -508,7 +546,7 @@ Started on November, 19 2013
       
       v_DS_counter=0;  //clearing counter and accumulator for the next QH step
       v_DS_accumulator=0;
-      if (new_timer-v_DS_timer<10)    //this is to check whether there is no significant difference between target timer and global_timer
+      if (new_timer-v_DS_timer<c_DS_significant_timer_difference)    //this is to check whether there is no significant difference between target timer and global_timer
       {//if no - everything ok, and just extending the timer
         v_DS_timer+=c_DS_timer_interval;
       }else
@@ -553,12 +591,12 @@ Started on November, 19 2013
 
   void f_UI_disable_all_alarms()  //disable all alarms based on externally received message
   {
-    for (int i=0;i<c_UI_number_of_alarms; i++)  //disableing all alarms
+    for (ui8_T  i=0;i<c_UI_number_of_alarms; i++)  //disableing all alarms
     {
       v_UI_alarms[i].enabled=false;  
       v_UI_alarms[i].led_on=false;
     }
-    digitalWrite(c_UI_led_pin,c_UI_led_off);  //quenching LED.
+    digitalWrite(c_UI_led_pin,c_UI_led_off);  //quenching LED.  //TODO: fix for CC!!!!
   }
 
 
@@ -567,7 +605,7 @@ Started on November, 19 2013
     v_UI_current_millis=millis();
     boolean v_UI_buf_led_on=false;
     //alarms and LED update:
-    for (int i=0; i<c_UI_number_of_alarms; i++)
+    for (ui8_T  i=0; i<c_UI_number_of_alarms; i++)
     {
       //alarms update
       if (v_UI_alarms[i].disable_timer<global_timer)  //if it is time to disable alarm - do it
@@ -595,49 +633,54 @@ Started on November, 19 2013
     }
     if (v_UI_buf_led_on)    //outputting obtained desired LED state to the LED pin.
     {
-      digitalWrite(c_UI_led_pin,c_UI_led_on);
+      digitalWrite(c_UI_led_pin,c_UI_led_on);    //TODO: fix for CC
     }else
     {
-      digitalWrite(c_UI_led_pin,c_UI_led_off);
+      digitalWrite(c_UI_led_pin,c_UI_led_off);    //TODO: fix for CC
     };
   }
 
 //! System block (SY)
   void f_SY_loop_updated()
   {
-    //Updating global_timer
+    //Updating global_timer  //TODO: move into an independent compiler-specific function
     
-    signed long new_millis=millis();
-    signed long old_global_timer=global_timer;    //this variable is used to check whether global_timer changed or not
+    timer_T  new_millis=millis();
+    timer_T  old_global_timer=global_timer;    //this variable is used to check whether global_timer changed or not
     global_timer+=(new_millis-last_millis)/1000;  //first, adding integer seconds passed since last function call. Remember that millis() gives
                                                   //timestamp in milliseconds
     global_timer_rest+=(new_millis-last_millis)%1000;  //the remaining milliseconds are added to global_timer_rest
     global_timer+=global_timer_rest/1000;          // and if it becomes greater than 1000 ms - all integer seconds are added to global_timer
     global_timer_rest%=1000;                       // and only remaining milliseconds are kept in the global_timer_rest
+    last_millis=new_millis;    //saving timer in last_millis
+    
+    //Launching all dependent outgoing signals
     if (old_global_timer!=global_timer)  //global_timer changed, and we need to call all second-interval functions
     {
       f_DA_timer_updated(global_timer); 
       f_DQ_timer_updated(global_timer);
       f_DS_timer_updated(global_timer);
     }
-    if (Serial.available()>0) f_BT_serial_available();  //will be changed to an interrupt in a PIC firmware
+    if (f_BT_serial_available()>0) f_BT_read_from_serial();  //will be changed to an interrupt in a PIC firmware
     f_UI_loop_updated();   //and calling all "real-time" functions as well
     f_BT_loop_updated();  
-    last_millis=new_millis;    //saving timer in last_millis
   }
 
 
 //! Data acquisition block (DQ)
-  void f_DQ_timer_updated(long new_timer)
+  void f_DQ_timer_updated(timer_T  new_timer)
   {
-    v_DA_timer_counter++;            //increasing counter of this function calls
-    v_DA_timer_counter%=c_DA_execution_step;  //checking if this counter reached treshold for temperature measurement
-    if (v_DA_timer_counter>0) return;  //if treshold not met - do nothing, otherwise continue - perform temperature measurement and submit data to DA
-    int datum=f_DQ_convert_temp(analogRead(c_DA_temperature_sensor_pin));    //reading the temperature
+    v_DQ_timer_counter++;            //increasing counter of this function calls
+    v_DQ_timer_counter%=c_DQ_execution_step;  //checking if this counter reached treshold for temperature measurement
+    if (v_DQ_timer_counter>0) return;  //if treshold not met - do nothing, otherwise continue - perform temperature measurement and submit data to DA
+    int datum=f_DQ_convert_temp(analogRead(c_DQ_temperature_sensor_pin));    //reading the temperature
+      //TODO: fix compiler-specificity
     f_DA_raw_data_received(datum);        //sending data to DA
   }
   
-  int f_DQ_convert_temp(int sensorValue)  //This function converts signal from the temperature sensor into degrees
+  //!!!CC 
+  //!!! Hardware-specific
+  raw_temp_T  f_DQ_convert_temp(sensor_value_T  sensorValue)  //This function converts signal from the temperature sensor into degrees
     //taken from seeedstudio.com as a part of specifications of a sensor used in the current project. 
     //Details can be found at: http://www.seeedstudio.com/wiki/index.php?title=GROVE_-_Starter_Kit_v1.1b#Grove_-_Temperature_Sensor
   {
@@ -646,13 +689,13 @@ Started on November, 19 2013
     float Rsensor;
     Rsensor=(float)(1023-sensorValue)*10000/sensorValue;
     TEMP=1/(log(Rsensor/10000)/B+1/298.15)-273.15;
-    return (int)TEMP;
+    return (raw_temp_T) TEMP;
   }
 
 
 //! Data analysis block (DA)
 
-void f_DA_raw_data_received(int raw_data)  //The function is called when DQ has received a new datum
+void f_DA_raw_data_received(raw_temp_T  raw_data)  //The function is called when DQ has received a new datum
   //this function only adds data to accumulators and sends it to DS block, and DOES not analyze short- or long-term alarms
   //Such analysis is performed upon DA timer update.
 {
@@ -690,7 +733,7 @@ void f_DA_raw_data_received(int raw_data)  //The function is called when DQ has 
   }
 }
 
-void f_DA_timer_updated(long new_timer) //Upon receipt: analyze whether short- or long-term steps are completed, if so - process new step
+void f_DA_timer_updated(timer_T  new_timer) //Upon receipt: analyze whether short- or long-term steps are completed, if so - process new step
 {
   //Analyze whether short-temp step is complete
   if (new_timer>v_DA_last_short_term_step_timer+v_DA_short_term_alarm_step_interval) //the step is complete
@@ -740,11 +783,11 @@ void f_DA_timer_updated(long new_timer) //Upon receipt: analyze whether short- o
 
 
 
-void setup(){
+void setup(){  //TODO: make non-compiler-specific!!!
   //! DQ
-    pinMode(c_DA_temperature_sensor_pin,INPUT_PULLUP);  //setting the temperature pin into INPUT mode with a pullup - in order to avoid random reading in case of sensor connection error
+    pinMode(c_DQ_temperature_sensor_pin,INPUT_PULLUP);  //setting the temperature pin into INPUT mode with a pullup - in order to avoid random reading in case of sensor connection error
   //!UI
-    for (int i=0; i<c_UI_number_of_alarms; i++) v_UI_alarms[i]=c_UI_default_alarms[i];   
+    for (si8_T i=0; i<c_UI_number_of_alarms; i++) v_UI_alarms[i]=c_UI_default_alarms[i];   
     pinMode(c_UI_led_pin,OUTPUT);
     digitalWrite(c_UI_led_pin,c_UI_led_off);
   
@@ -757,7 +800,7 @@ void setup(){
     v_DS_buffers[c_DS_qh].time_stamp=0;
     v_DS_buffers[c_DS_qh].counter=0;
     v_DS_buffers[c_DS_qh].counter_max=4;
-    v_DS_buffers[c_DS_qh].data=(int*)(malloc(v_DS_buffers[c_DS_qh].length_max * sizeof(int))); 
+    v_DS_buffers[c_DS_qh].data=(raw_temp_T*)(malloc(v_DS_buffers[c_DS_qh].length_max * sizeof(raw_temp_T))); 
     
       //defining H circular buffer
     v_DS_buffers[c_DS_h].length_max=24;
@@ -767,7 +810,7 @@ void setup(){
     v_DS_buffers[c_DS_h].time_stamp=0;
     v_DS_buffers[c_DS_h].counter=0;
     v_DS_buffers[c_DS_h].counter_max=24;
-    v_DS_buffers[c_DS_h].data=(int*)malloc(v_DS_buffers[c_DS_h].length_max * sizeof(int)); 
+    v_DS_buffers[c_DS_h].data=(raw_temp_T*)malloc(v_DS_buffers[c_DS_h].length_max * sizeof(raw_temp_T)); 
     
       //defining D circular buffer
     v_DS_buffers[c_DS_d].length_max=28;
@@ -777,10 +820,10 @@ void setup(){
     v_DS_buffers[c_DS_d].time_stamp=0;
     v_DS_buffers[c_DS_d].counter=0;
     v_DS_buffers[c_DS_d].counter_max=28;
-    v_DS_buffers[c_DS_d].data=(int*)malloc(v_DS_buffers[c_DS_d].length_max * sizeof(int));  
+    v_DS_buffers[c_DS_d].data=(raw_temp_T*)malloc(v_DS_buffers[c_DS_d].length_max * sizeof(raw_temp_T));  
     
-    for (int i=0; i<c_DS_number_of_buffers;i++)
-      for (int k=0; k<v_DS_buffers[i].length_max;k++)
+    for (si8_T i=0; i<c_DS_number_of_buffers;i++)
+      for (circular_buffer_index_T k=0; k<v_DS_buffers[i].length_max;k++)
       {
         v_DS_buffers[i].data[k]=-c_DS_invalid_data;  
       }
